@@ -2,14 +2,14 @@
 """
 ui/login_frame.py
 Ecran de connexion et de creation de compte utilisateur.
-Panneau lateral avec degrade Violet -> Ambre et illustration reseau
-vectorielle, carte de connexion blanche centree a droite.
+Panneau lateral avec degrade Violet -> Ambre (pre-rendu via Pillow) et
+logo, carte de connexion blanche centree a droite.
 """
 
 import tkinter as tk
 from tkinter import messagebox
 
-from config import Theme
+from config import Theme, Paths
 
 
 def _hex_vers_rgb(couleur_hex):
@@ -17,22 +17,9 @@ def _hex_vers_rgb(couleur_hex):
     return tuple(int(couleur_hex[i:i + 2], 16) for i in (0, 2, 4))
 
 
-def _rgb_vers_hex(rgb):
-    return "#{:02x}{:02x}{:02x}".format(*rgb)
-
-
-def _interpoler_couleur(couleur1, couleur2, ratio):
-    r1, g1, b1 = _hex_vers_rgb(couleur1)
-    r2, g2, b2 = _hex_vers_rgb(couleur2)
-    r = int(r1 + (r2 - r1) * ratio)
-    g = int(g1 + (g2 - g1) * ratio)
-    b = int(b1 + (b2 - b1) * ratio)
-    return _rgb_vers_hex((r, g, b))
-
-
 class LoginFrame(tk.Frame):
     LARGEUR_ENTRY = 32
-    LARGEUR_PANNEAU_RATIO = 0.4  # 40% de la largeur pour le panneau colore
+    LARGEUR_PANNEAU_RATIO = 0.4
 
     def __init__(self, master, db, on_login_success):
         super().__init__(master, bg=Theme.LIGHT_BG)
@@ -40,112 +27,92 @@ class LoginFrame(tk.Frame):
         self.on_login_success = on_login_success
         self.mode_creation = tk.BooleanVar(value=False)
 
+        self._image_degrade_cache = None
+        self._image_logo_cache = None
+        self._derniere_taille = (0, 0)
+
         self._construire_interface()
         self.bind("<Configure>", self._on_resize)
 
     # --------------------------------------------------------
     def _construire_interface(self):
-        # Panneau lateral colore (degrade + illustration)
-        self.canvas_panneau = tk.Canvas(self, highlightthickness=0, bd=0)
+        self.canvas_panneau = tk.Canvas(self, highlightthickness=0, bd=0,
+                                         bg=Theme.PRIMARY)
         self.canvas_panneau.place(relx=0, rely=0, relwidth=self.LARGEUR_PANNEAU_RATIO,
                                    relheight=1)
 
-        # Carte de connexion blanche, centree dans la zone restante
         self.conteneur = tk.Frame(self, bg=Theme.LIGHT_CARD, padx=44, pady=40,
                                    highlightbackground=Theme.LIGHT_BORDER,
                                    highlightthickness=1)
-        self._positionner_carte()
 
         self._construire_formulaire()
 
-    def _positionner_carte(self):
-        """Centre la carte dans la zone a droite du panneau colore."""
-        centre_x = self.LARGEUR_PANNEAU_RATIO + (1 - self.LARGEUR_PANNEAU_RATIO) / 2
-        self.conteneur.place(relx=centre_x, rely=0.5, anchor="center")
-
     def _on_resize(self, event):
+        largeur = self.winfo_width()
+        hauteur = self.winfo_height()
+
+        # Ne redessiner que si la taille a reellement change (evite le
+        # redessin en boucle a chaque micro-evenement Configure)
+        if (largeur, hauteur) == self._derniere_taille or largeur <= 1:
+            return
+        self._derniere_taille = (largeur, hauteur)
+
         self._redessiner_panneau()
+        self._positionner_carte()
 
     # --------------------------------------------------------
-    # Panneau colore : degrade + illustration vectorielle
+    # Panneau colore : degrade pre-rendu (Pillow) + logo
     # --------------------------------------------------------
     def _redessiner_panneau(self):
+        largeur_totale = self.winfo_width()
+        hauteur_totale = self.winfo_height()
+        largeur_panneau = max(1, int(largeur_totale * self.LARGEUR_PANNEAU_RATIO))
+
+        self.canvas_panneau.config(width=largeur_panneau, height=hauteur_totale)
         self.canvas_panneau.delete("all")
-        largeur = self.canvas_panneau.winfo_width()
-        hauteur = self.canvas_panneau.winfo_height()
-        if largeur <= 1 or hauteur <= 1:
+
+        self._dessiner_degrade_image(largeur_panneau, hauteur_totale)
+        self._dessiner_texte_logo(largeur_panneau, hauteur_totale)
+
+    def _dessiner_degrade_image(self, largeur, hauteur):
+        """Genere le degrade une seule fois en image Pillow (rapide),
+        au lieu de centaines de create_rectangle un par un."""
+        try:
+            from PIL import Image, ImageTk
+        except ImportError:
+            # Repli si Pillow indisponible : couleur unie
+            self.canvas_panneau.create_rectangle(
+                0, 0, largeur, hauteur, fill=Theme.PRIMARY, outline=Theme.PRIMARY
+            )
             return
 
-        self._dessiner_degrade(largeur, hauteur)
-        self._dessiner_illustration_reseau(largeur, hauteur)
-        self._dessiner_texte_logo(largeur, hauteur)
+        couleur1 = _hex_vers_rgb(Theme.PRIMARY)
+        couleur2 = _hex_vers_rgb(Theme.ACCENT)
 
-    def _dessiner_degrade(self, largeur, hauteur):
-        """Degrade vertical Violet (haut) -> Ambre (bas)."""
-        pas = 2  # dessiner par bandes de 2px pour la performance
-        for y in range(0, hauteur, pas):
-            ratio = y / hauteur
-            couleur = _interpoler_couleur(Theme.PRIMARY, Theme.ACCENT, ratio)
-            self.canvas_panneau.create_rectangle(
-                0, y, largeur, y + pas, fill=couleur, outline=couleur
-            )
+        # Degrade calcule sur une bande de 1px de large, puis etiree
+        degrade = Image.new("RGB", (1, hauteur))
+        pixels = degrade.load()
+        for y in range(hauteur):
+            ratio = y / hauteur if hauteur else 0
+            r = int(couleur1[0] + (couleur2[0] - couleur1[0]) * ratio)
+            g = int(couleur1[1] + (couleur2[1] - couleur1[1]) * ratio)
+            b = int(couleur1[2] + (couleur2[2] - couleur1[2]) * ratio)
+            pixels[0, y] = (r, g, b)
 
-    def _dessiner_illustration_reseau(self, largeur, hauteur):
-        """Illustration vectorielle : noeuds connectes façon reseau FO."""
-        import random
-        random.seed(42)  # motif stable a chaque redessin
-
-        centre_x = largeur / 2
-        centre_y = hauteur * 0.38
-        rayon_zone = min(largeur, hauteur) * 0.22
-
-        noeuds = []
-        nb_noeuds = 7
-        for i in range(nb_noeuds):
-            angle = (2 * 3.14159 * i / nb_noeuds) + random.uniform(-0.3, 0.3)
-            distance = rayon_zone * random.uniform(0.4, 1.0)
-            x = centre_x + distance * __import__("math").cos(angle)
-            y = centre_y + distance * __import__("math").sin(angle)
-            noeuds.append((x, y))
-        noeuds.append((centre_x, centre_y))  # noeud central
-
-        couleur_ligne = "#FFFFFF"
-
-        # Lignes de connexion (chaque noeud relie au centre + quelques voisins)
-        for i, (x, y) in enumerate(noeuds[:-1]):
-            self.canvas_panneau.create_line(
-                x, y, centre_x, centre_y, fill=couleur_ligne, width=1.5,
-                stipple="gray50"
-            )
-            if i > 0:
-                x_prec, y_prec = noeuds[i - 1]
-                self.canvas_panneau.create_line(
-                    x, y, x_prec, y_prec, fill=couleur_ligne, width=1,
-                    stipple="gray25"
-                )
-
-        # Points (noeuds), le central plus gros
-        for i, (x, y) in enumerate(noeuds):
-            rayon_pt = 7 if i == len(noeuds) - 1 else 4
-            self.canvas_panneau.create_oval(
-                x - rayon_pt, y - rayon_pt, x + rayon_pt, y + rayon_pt,
-                fill="#FFFFFF", outline="#FFFFFF"
-            )
-            self.canvas_panneau.create_oval(
-                x - rayon_pt + 2, y - rayon_pt + 2, x + rayon_pt - 2, y + rayon_pt - 2,
-                fill=Theme.PRIMARY_DARK, outline=""
-            )
+        degrade = degrade.resize((largeur, hauteur))
+        self._image_degrade_cache = ImageTk.PhotoImage(degrade)
+        self.canvas_panneau.create_image(0, 0, image=self._image_degrade_cache, anchor="nw")
 
     def _dessiner_texte_logo(self, largeur, hauteur):
         centre_x = largeur / 2
-        y_logo = hauteur * 0.60
+        y_logo = hauteur * 0.42
 
-        logo_affiche = self._afficher_logo_image(centre_x, y_logo)
+        logo_affiche = self._afficher_logo_image(centre_x, y_logo, hauteur)
 
-        y_nom = hauteur * 0.68 if logo_affiche else hauteur * 0.60
+        y_nom = y_logo + 80 if logo_affiche else hauteur * 0.45
 
         self.canvas_panneau.create_text(
-            centre_x, y_nom, text="⚡ FiberSim" if not logo_affiche else "FiberSim",
+            centre_x, y_nom, text="FiberSim",
             font=(Theme.FONT_FAMILY, 26, "bold"), fill="white"
         )
         self.canvas_panneau.create_text(
@@ -157,32 +124,47 @@ class LoginFrame(tk.Frame):
             font=(Theme.FONT_FAMILY, 12, "italic"), fill="#F5F3FF"
         )
 
-    def _afficher_logo_image(self, centre_x, y_logo):
-        """
-        Tente d'afficher assets/logo.png dans le panneau. Retourne True
-        si le logo a ete affiche, False si le fichier est absent (repli
-        silencieux sur le texte seul).
-        """
-        from config import Paths
+    def _afficher_logo_image(self, centre_x, y_logo, hauteur_canvas):
         import os
-
         if not os.path.exists(Paths.LOGO_PNG):
             return False
 
         try:
             from PIL import Image, ImageTk
 
-            if not hasattr(self, "_image_logo_cache"):
-                image = Image.open(Paths.LOGO_PNG)
-                image.thumbnail((90, 90))  # redimensionnement proportionnel
-                self._image_logo_cache = ImageTk.PhotoImage(image)
+            ratio_y = y_logo / hauteur_canvas if hauteur_canvas else 0.4
+            couleur1 = _hex_vers_rgb(Theme.PRIMARY)
+            couleur2 = _hex_vers_rgb(Theme.ACCENT)
+            couleur_fond = tuple(
+                int(couleur1[i] + (couleur2[i] - couleur1[i]) * ratio_y)
+                for i in range(3)
+            )
 
+            image_originale = Image.open(Paths.LOGO_PNG).convert("RGBA")
+            image_originale.thumbnail((90, 90))
+
+            fond = Image.new("RGBA", image_originale.size, couleur_fond + (255,))
+            image_composee = Image.alpha_composite(fond, image_originale)
+
+            self._image_logo_cache = ImageTk.PhotoImage(image_composee)
             self.canvas_panneau.create_image(
                 centre_x, y_logo, image=self._image_logo_cache
             )
             return True
         except Exception:
-            return False  # Pillow absent ou fichier corrompu -> repli texte
+            return False
+
+    # --------------------------------------------------------
+    def _positionner_carte(self):
+        largeur_totale = self.winfo_width()
+        if largeur_totale <= 1:
+            return
+
+        largeur_panneau = largeur_totale * self.LARGEUR_PANNEAU_RATIO
+        largeur_zone_droite = largeur_totale - largeur_panneau
+        centre_x_pixels = largeur_panneau + (largeur_zone_droite / 2)
+
+        self.conteneur.place(x=centre_x_pixels, rely=0.5, anchor="center")
 
     # --------------------------------------------------------
     # Formulaire (carte blanche)
@@ -193,7 +175,6 @@ class LoginFrame(tk.Frame):
             fg=Theme.LIGHT_TEXT, bg=Theme.LIGHT_CARD
         ).grid(row=0, column=0, pady=(0, 24), sticky="w")
 
-        # Champ nom d'utilisateur
         self.label_username = tk.Label(
             self.conteneur, text="Nom d'utilisateur", font=Theme.FONT_NORMAL,
             fg=Theme.LIGHT_SUBTEXT, bg=Theme.LIGHT_CARD, anchor="w"
@@ -205,7 +186,6 @@ class LoginFrame(tk.Frame):
         )
         self.entry_username.grid(row=2, column=0, pady=(4, 16), ipady=8, sticky="ew")
 
-        # Champ email (visible uniquement en mode creation)
         self.label_email = tk.Label(
             self.conteneur, text="Adresse email", font=Theme.FONT_NORMAL,
             fg=Theme.LIGHT_SUBTEXT, bg=Theme.LIGHT_CARD, anchor="w"
@@ -215,7 +195,6 @@ class LoginFrame(tk.Frame):
             relief="flat", bd=0, bg="#F3F4F6", insertbackground=Theme.LIGHT_TEXT
         )
 
-        # Champ mot de passe
         self.label_password = tk.Label(
             self.conteneur, text="Mot de passe", font=Theme.FONT_NORMAL,
             fg=Theme.LIGHT_SUBTEXT, bg=Theme.LIGHT_CARD, anchor="w"
@@ -228,7 +207,6 @@ class LoginFrame(tk.Frame):
         )
         self.entry_password.grid(row=6, column=0, pady=(4, 24), ipady=8, sticky="ew")
 
-        # Bouton principal
         self.bouton_action = tk.Button(
             self.conteneur, text="Se connecter", font=Theme.FONT_SUBTITLE,
             bg=Theme.PRIMARY, fg="white", relief="flat", cursor="hand2",
@@ -237,7 +215,6 @@ class LoginFrame(tk.Frame):
         )
         self.bouton_action.grid(row=7, column=0, ipady=10, pady=(0, 14), sticky="ew")
 
-        # Lien bascule connexion / creation
         self.lien_bascule = tk.Label(
             self.conteneur, text="Pas encore de compte ?  Créer un compte",
             font=Theme.FONT_SMALL, fg=Theme.PRIMARY, bg=Theme.LIGHT_CARD,
@@ -247,7 +224,6 @@ class LoginFrame(tk.Frame):
         self.lien_bascule.bind("<Button-1>", lambda e: self._basculer_mode())
 
         self.conteneur.grid_columnconfigure(0, weight=1)
-
         self.entry_password.bind("<Return>", lambda e: self._soumettre())
 
     def _basculer_mode(self):
