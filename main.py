@@ -30,6 +30,12 @@ class FiberSimApp(tk.Tk):
         self.geometry("1200x750")
         self.minsize(1000, 650)
 
+        # Icone de la fenetre (si le fichier logo.ico est present)
+        try:
+            self.iconbitmap(Paths.LOGO_ICO)
+        except tk.TclError:
+            pass  # icone absente ou format non supporte, on continue sans
+
         Paths.ensure_dirs()
 
         self.db = Database()

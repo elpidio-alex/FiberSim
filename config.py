@@ -92,6 +92,8 @@ class Paths:
     LISTE_XLSX = os.path.join(BASE_DIR, "Liste.xlsx")
     EXPORTS_DIR = os.path.join(BASE_DIR, "exports")
     ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+    LOGO_PNG = os.path.join(ASSETS_DIR, "logo.png")
+    LOGO_ICO = os.path.join(ASSETS_DIR, "logo.ico")
 
     @staticmethod
     def ensure_dirs():
