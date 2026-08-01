@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 main.py
 Point d'entree de FiberSim : authentification, fenetre principale,

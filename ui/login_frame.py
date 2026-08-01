@@ -3,7 +3,7 @@
 ui/login_frame.py
 Ecran de connexion et de creation de compte utilisateur.
 Panneau lateral avec degrade Violet -> Ambre (pre-rendu via Pillow) et
-logo, carte de connexion blanche centree a droite.
+logo detoure, carte de connexion blanche centree a droite.
 """
 
 import tkinter as tk
@@ -51,8 +51,6 @@ class LoginFrame(tk.Frame):
         largeur = self.winfo_width()
         hauteur = self.winfo_height()
 
-        # Ne redessiner que si la taille a reellement change (evite le
-        # redessin en boucle a chaque micro-evenement Configure)
         if (largeur, hauteur) == self._derniere_taille or largeur <= 1:
             return
         self._derniere_taille = (largeur, hauteur)
@@ -80,7 +78,6 @@ class LoginFrame(tk.Frame):
         try:
             from PIL import Image, ImageTk
         except ImportError:
-            # Repli si Pillow indisponible : couleur unie
             self.canvas_panneau.create_rectangle(
                 0, 0, largeur, hauteur, fill=Theme.PRIMARY, outline=Theme.PRIMARY
             )
@@ -89,7 +86,6 @@ class LoginFrame(tk.Frame):
         couleur1 = _hex_vers_rgb(Theme.PRIMARY)
         couleur2 = _hex_vers_rgb(Theme.ACCENT)
 
-        # Degrade calcule sur une bande de 1px de large, puis etiree
         degrade = Image.new("RGB", (1, hauteur))
         pixels = degrade.load()
         for y in range(hauteur):
@@ -105,11 +101,11 @@ class LoginFrame(tk.Frame):
 
     def _dessiner_texte_logo(self, largeur, hauteur):
         centre_x = largeur / 2
-        y_logo = hauteur * 0.42
+        y_logo = hauteur * 0.38
 
         logo_affiche = self._afficher_logo_image(centre_x, y_logo, hauteur)
 
-        y_nom = y_logo + 80 if logo_affiche else hauteur * 0.45
+        y_nom = y_logo + 150 if logo_affiche else hauteur * 0.45
 
         self.canvas_panneau.create_text(
             centre_x, y_nom, text="FiberSim",
@@ -125,6 +121,11 @@ class LoginFrame(tk.Frame):
         )
 
     def _afficher_logo_image(self, centre_x, y_logo, hauteur_canvas):
+        """
+        Affiche assets/logo.png dans le panneau, en detourant manuellement
+        tout pixel proche du blanc/gris clair (fond du PNG source) pour
+        le rendre transparent, quel que soit son canal alpha d'origine.
+        """
         import os
         if not os.path.exists(Paths.LOGO_PNG):
             return False
@@ -141,7 +142,20 @@ class LoginFrame(tk.Frame):
             )
 
             image_originale = Image.open(Paths.LOGO_PNG).convert("RGBA")
-            image_originale.thumbnail((90, 90))
+            image_originale.thumbnail((260, 260))
+
+            # Detourage manuel du fond clair
+            donnees = image_originale.getdata()
+            nouvelles_donnees = []
+            SEUIL_CLARTE = 235
+
+            for r, g, b, a in donnees:
+                if r > SEUIL_CLARTE and g > SEUIL_CLARTE and b > SEUIL_CLARTE:
+                    nouvelles_donnees.append((r, g, b, 0))
+                else:
+                    nouvelles_donnees.append((r, g, b, a))
+
+            image_originale.putdata(nouvelles_donnees)
 
             fond = Image.new("RGBA", image_originale.size, couleur_fond + (255,))
             image_composee = Image.alpha_composite(fond, image_originale)
